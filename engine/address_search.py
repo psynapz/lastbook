@@ -91,7 +91,9 @@ def find_addresses(query, geo_directory, limit=8, near=None):
     try:
         for path in paths:
             try:
-                connections.append(sqlite3.connect(ro_uri(path), uri=True))
+                connection = sqlite3.connect(ro_uri(path), uri=True)
+                connections.append(connection)
+                connection.create_function('normalize_city', 1, lambda city: normalize(city or ''), deterministic=True)
             except sqlite3.Error:
                 continue
         for count in range(len(words), 0, -1):
@@ -110,7 +112,8 @@ def find_addresses(query, geo_directory, limit=8, near=None):
                     conditions.append('zip = ?')
                     parameters.append(postcode)
                 if city:
-                    conditions.append('lower(city) LIKE ?')
+                    # The query also abbreviates city words: Mount Pleasant becomes mt pleasant.
+                    conditions.append('normalize_city(city) LIKE ?')
                     parameters.append(city + '%')
                 sql = ('SELECT num,street,city,state,zip,lat,lon,norm FROM addr WHERE '
                        + ' AND '.join(conditions) + ' ORDER BY length(norm),norm LIMIT ?')
