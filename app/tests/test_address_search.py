@@ -56,6 +56,30 @@ class AddressSearchTests(unittest.TestCase):
         self.assertEqual(find_addresses('18001 nine mile Wrongtown MI', self.geo), [])
         self.assertEqual(find_addresses('18001 nine mile MI 99999', self.geo), [])
 
+    def test_city_names_use_the_same_normalization_as_the_query(self):
+        self.write_state('SC', [
+            ('100', 'Example Road', 'Mount Pleasant', 'SC', '29464', 0.0, 0.0),
+            ('100', 'Example Road', 'North Charleston', 'SC', '29405', 0.0, 0.0),
+            ('100', 'Example Road', None, 'SC', '29464', 0.0, 0.0),
+        ])
+        self.write_state('MO', [
+            ('100', 'Example Road', 'St. Louis', 'MO', '63101', 0.0, 0.0),
+            ('100', 'Example Road', 'Saint Charles', 'MO', '63301', 0.0, 0.0),
+        ])
+        for city, state, postcode, spellings in (
+                ('Mount Pleasant', 'SC', '29464', ('Mount Pleasant', 'Mt Pleasant', 'Mt. Pleasant')),
+                ('North Charleston', 'SC', '29405', ('North Charleston', 'N Charleston')),
+                ('St. Louis', 'MO', '63101', ('Saint Louis', 'St Louis', 'St. Louis')),
+                ('Saint Charles', 'MO', '63301', ('Saint Charles', 'St Charles'))):
+            for spelling in spellings:
+                with self.subTest(city=city, spelling=spelling):
+                    result = find_addresses(f'100 Example Road {spelling} {state}', self.geo)
+                    self.assertEqual(len(result), 1)
+                    self.assertEqual(result[0]['detail'], f'{city}, {state}, {postcode}')
+        self.assertEqual(find_addresses('100 Example Rd Wrongtown SC', self.geo), [])
+        self.assertEqual(find_addresses('100 Example Rd Mt Pleasant SC 29405', self.geo), [])
+        self.assertEqual(find_addresses('101 Example Rd Mt Pleasant SC', self.geo), [])
+
     def test_state_uses_only_that_index(self):
         result = find_addresses('18001 nine mile CA', self.geo)
         self.assertEqual(len(result), 1)
@@ -78,10 +102,12 @@ class AddressSearchTests(unittest.TestCase):
         try:
             db.execute('CREATE TABLE addr(num TEXT,street TEXT,norm TEXT,city TEXT,state TEXT,zip TEXT,lat REAL,lon REAL)')
             db.execute("INSERT INTO addr VALUES('23001','Maple Avenue','maple ave','Kansas City','MO','64105',39.0997,-94.5786)")
+            db.execute("INSERT INTO addr VALUES('100','Example Road','example rd','St. Louis','MO','63101',0,0)")
             db.commit()
         finally:
             db.close()      # as in write_state: the `with` form does not close, and Windows will not remove an open file
         self.assertEqual(find_addresses('23001 Maple Ave Kansas City MO', empty)[0]['lat'], 39.0997)
+        self.assertEqual(find_addresses('100 Example Rd Saint Louis MO', empty)[0]['detail'], 'St. Louis, MO, 63101')
 
     def test_app_route_preserves_address_number(self):
         import server
